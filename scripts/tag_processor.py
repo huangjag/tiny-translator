@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-r"""tags.py —— HTML 标签保护、切分与还原器。
+r"""tag_processor.py —— HTML 标签保护、切分与还原器。
 
 基于实测知识库 (google-translate-v2-html-knowledge.md) 设计：
 1. GoogleHTMLProcessor (针对支持 format=html 的引擎，如 Google Translate v2)：
@@ -21,7 +21,7 @@ import re
 from collections import Counter
 from typing import Any
 
-logger = logging.getLogger("tiny_translator.tags")
+logger = logging.getLogger("tiny_translator.tag_processor")
 
 VOID_TAGS = {
     "area", "base", "br", "col", "embed", "hr", "img", "input",

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""auth.py —— tiny-translator 统一凭据解析模块。
+"""auth_manager.py —— tiny-translator 统一凭据解析模块。
 
 按以下优先级查找凭据：
 1. 命令行参数: --credentials
@@ -23,7 +23,7 @@ from typing import Any
 
 logger = logging.getLogger("tiny_translator.auth")
 
-SKILL_ROOT = Path(__file__).resolve().parents[2]
+SKILL_ROOT = Path(__file__).resolve().parent.parent
 
 
 def get_user_config_dirs() -> list[Path]:

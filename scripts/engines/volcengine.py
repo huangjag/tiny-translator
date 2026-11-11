@@ -28,7 +28,6 @@ import urllib.request
 from typing import Any
 
 from .base import BaseEngine
-from ..errors import NetworkError, ProviderError, QuotaExceededError, RateLimitError
 
 logger = logging.getLogger("tiny_translator.volcengine")
 
@@ -55,20 +54,6 @@ ERROR_MESSAGES: dict[str, str] = {
 }
 
 RETRYABLE_CODES = {"-429", "-500"}
-
-# 错误分类：宿主可据此决定「换供应商」还是「稍后重试」
-RATE_LIMIT_CODES = {"-429"}
-QUOTA_CODES = {"QuotaExceeded", "AccountOverdue", "InsufficientBalance"}
-
-
-def _provider_error(code: str, msg: str) -> ProviderError:
-    """把火山引擎错误码映射为具体异常类型。"""
-    text = f"火山引擎翻译 API 错误 [{code}]: {msg}"
-    if code in QUOTA_CODES:
-        return QuotaExceededError(text)
-    if code in RATE_LIMIT_CODES:
-        return RateLimitError(text)
-    return ProviderError(text)
 
 # 常见语种代码映射到火山规范；未命中时原样透传 (保留大小写，如 zh-Hant)
 LANGUAGE_MAP: dict[str, str] = {
@@ -212,12 +197,12 @@ class VolcengineEngine(BaseEngine):
                     logger.warning("火山引擎网络错误 (%s)，将在 %.1fs 后重试...", e, backoff)
                     time.sleep(backoff)
                     continue
-                raise NetworkError(f"火山引擎翻译请求失败: {e}") from e
+                raise RuntimeError(f"火山引擎翻译请求失败: {e}") from e
 
             try:
                 res_json = json.loads(raw)
             except json.JSONDecodeError as e:
-                raise ProviderError(f"火山引擎返回非 JSON 内容: {raw[:300]}") from e
+                raise RuntimeError(f"火山引擎返回非 JSON 内容: {raw[:300]}") from e
 
             error = (res_json.get("ResponseMetadata") or {}).get("Error")
             if error:
@@ -234,11 +219,11 @@ class VolcengineEngine(BaseEngine):
                     )
                     time.sleep(backoff)
                     continue
-                raise _provider_error(code, msg)
+                raise RuntimeError(f"火山引擎翻译 API 错误 [{code}]: {msg}")
 
             return [item.get("Translation", "") for item in res_json.get("TranslationList") or []]
 
-        raise NetworkError("火山引擎翻译请求超出最大重试次数")
+        raise RuntimeError("火山引擎翻译请求超出最大重试次数")
 
     @staticmethod
     def _split_oversized(text: str) -> list[str]:
@@ -273,7 +258,7 @@ class VolcengineEngine(BaseEngine):
         if not texts:
             return []
         if not self.access_key or not self.secret_key:
-            raise ProviderError("火山引擎翻译未配置凭据！请提供 access_key 与 secret_key。")
+            raise RuntimeError("火山引擎翻译未配置凭据！请提供 access_key 与 secret_key。")
 
         from_lang = self.map_language(source)
         to_lang = self.map_language(target)
