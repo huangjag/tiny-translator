@@ -1,0 +1,19 @@
+# Ignore test fixtures (auth/ ships: it holds the credential template only)
+tests/
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# OS and Editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

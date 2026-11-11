@@ -1,0 +1,28 @@
+#请在这个文件夹内填写翻译服务的api key
+#please put your translation services api key here
+#填写标准可参考EXAMPLE_KEY
+#Refer to EXAMPLE_KEY for formatting instructions
+
+EXAMPLE_KEY=sk-123456
+
+#----------------------------------------------------------------------
+# [服务 1 / 默认] 百度通用翻译 (APP ID 与 密钥)
+# [Service 1 / Default] Baidu Translate (APP ID and Secret Key)
+BAIDU_APP_ID=
+BAIDU_SECRET_KEY=
+
+#----------------------------------------------------------------------
+# [服务 2] 火山引擎机器翻译 (Access Key ID 与 Secret Access Key)
+# [Service 2] Volcengine TranslateText (Access Key ID and Secret Access Key)
+# 获取地址: https://console.volcengine.com/iam/keymanage/
+# 需开通「机器翻译」服务；签名区域固定 cn-north-1，服务名 translate
+VOLC_ACCESS_KEY=
+VOLC_SECRET_KEY=
+
+#----------------------------------------------------------------------
+# [服务 9] 谷歌翻译 (Service Account JSON 凭据文件路径 或 API Key)
+# [Service 9] Google Translate (Service Account JSON path or API Key)
+# 提示: 也可以直接将下载的 Google service_account.json 文件放入本文件夹
+# Tip: You can also drop your Google service_account.json file directly into this folder
+CREDENTIALS_PATH=
+GOOGLE_API_KEY=
