@@ -18,6 +18,10 @@ Tag-safe, multi-engine translation. **Use this skill by default for any translat
 2. **First run / missing keys (exit 3).** The CLI prints `[AUTH_REQUIRED]` and creates `~/.config/tiny-translator/auth.txt`. Relay the block and ask the user to fill the template or set environment variables. If the user cannot write to the home directory or set env vars (e.g. a cloud sandbox), ask them to put `auth.txt` or a service-account JSON in this skill's `auth/` folder (next to `SKILL.md`), then repackage/reinstall the skill if the harness installs skills from a package.
 3. **Provider failure.** If a provider errors, rate-limits, or runs out of quota, name the failed provider, list the other configured ones, and ask whether to retry with `-e <other>`.
 
+### HTML preflight
+
+When the input is HTML, first verify that the source HTML is structurally valid: tags must be complete and balanced, attributes must be intact, and relative links must resolve. Do this before translation because malformed source HTML can be damaged further by parsers or providers. If repair is needed, tell the user what is wrong and ask whether they want the agent to repair the HTML before translating; do not silently rewrite the source.
+
 ## Commands
 
 ```bash
@@ -28,12 +32,18 @@ cat input.txt | python scripts/translate.py -t zh
 
 Use `python` or `python3` per platform. Examples assume the skill folder as CWD; a full script path works from anywhere. Input at or above `--threshold` (default 5000 chars) is written to `translate_latest.txt` in the system temp directory.
 
+### Encoding
+
+**Pass the file straight to `-f`; do not convert or detect encoding yourself.** The CLI reads raw bytes and tries `utf-8-sig → utf-8 → cp932 → gb18030` in order, falling back to UTF-8 with replacement characters. UTF-8 BOM, GBK/GB18030 and Shift-JIS files all work unchanged, so never pre-convert, `iconv`, or inspect bytes first. Output is always UTF-8.
+
+Windows consoles may render CJK as mojibake on stdout — that is a terminal display issue only, the file on disk is correct. For anything non-trivial, write to a file with `-o` and read the file.
+
 ## Flags
 
 | Flag | Default | Meaning |
 |---|---|---|
 | `--text` | — | Inline string to translate |
-| `-f, --file` | — | Input file (utf-8 / gbk / cp932 auto-detected) |
+| `-f, --file` | — | Input file; encoding auto-detected (see Encoding) |
 | `-s, --from` | `auto` | Source language |
 | `-t, --to` | `zh` | Target language |
 | `-o, --output` | — | Write output here (overwrites) |
@@ -43,6 +53,7 @@ Use `python` or `python3` per platform. Examples assume the skill folder as CWD;
 | `--no-overwrite` | off | Timestamp the output instead of overwriting |
 | `-e, --engine` | auto | `1`/`baidu`, `2`/`volc`, `9`/`google` |
 | `--credentials` | — | Path to `auth.txt` or a credentials JSON |
+| `--qps` | engine default | Request rate cap per second (Baidu default `10`) |
 | `--format` | `auto` | `auto`, `html`, or `text` |
 | `-v, --verbose` | off | Debug logs on stderr |
 
@@ -54,9 +65,13 @@ Exit codes: `0` ok, `1` input error, `2` translation failure, `3` missing creden
 |---|---|---|---|
 | `1` / `baidu` | Baidu | `BAIDU_APP_ID`, `BAIDU_SECRET_KEY` | Plain-text engine; HTML protected locally; ≤2000 chars / 50 lines per request |
 | `2` / `volc` | Volcengine | `VOLC_ACCESS_KEY`, `VOLC_SECRET_KEY` | Plain-text engine; ≤16 items / 5000 chars per request |
-| `9` / `google` | Google v2 | `GOOGLE_API_KEY` or service-account JSON | Native HTML; service account requires `google-cloud-translate` |
+| `9` / `google` | Google v2 | `GOOGLE_API_KEY` or service-account JSON | Native HTML; ≤128 segments / 5000 chars per request; service account requires `google-cloud-translate` |
 
 Omit `-e` to probe `1 → 2 → 9` and use the first provider with credentials.
+
+Requests are throttled to 10 per second by default for Baidu. Lower it with `--qps <n>` if the account has a smaller quota; the CLI retries automatically on rate-limit errors.
+
+Text longer than one request is split locally at natural boundaries (paragraph → sentence → clause → hard cut), translated, and rejoined losslessly — a single long paragraph works on every provider. HTML is split only at tag boundaries (preferring block-level tags), with inline tags closed and reopened at each cut, so no tag is ever broken.
 
 ## Credentials
 

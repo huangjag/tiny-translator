@@ -9,7 +9,7 @@
 - supports_html = False (纯文本引擎，通过 DOMTextNodeProcessor 隔离保护 HTML)
 - 签名算法: 火山 HMAC-SHA256 v4，仅依赖标准库 hmac / hashlib / urllib
 - 接口限制: TextList 单请求不超过 16 条，且总文本长度不超过 5000 字符
-- 超长单条文本按行边界 (必要时硬切) 拆分后拼接，避免触发 -400
+- 超长单条文本先按自然边界 (换行 > 句末 > 从句 > 硬切) 拆分，翻译后无损拼回
 - 访问频率控制与指数退避重试: 应对 -429 (请求过于频繁) 与 -500 (服务内部错误)
 - 语种代码映射: ISO-639-1 / BCP-47 至火山代码 (如 zh-TW -> zh-Hant, ja 保持 ja)
 """
@@ -26,6 +26,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any
+
+from text_splitter import expand
 
 from .base import BaseEngine
 
@@ -225,27 +227,6 @@ class VolcengineEngine(BaseEngine):
 
         raise RuntimeError("火山引擎翻译请求超出最大重试次数")
 
-    @staticmethod
-    def _split_oversized(text: str) -> list[str]:
-        """把超过单请求字符上限的文本按行边界拆分，必要时硬切；拼接后可还原原文。"""
-        chunks: list[str] = []
-        buf = ""
-        for line in text.splitlines(keepends=True):
-            while len(line) > MAX_BATCH_CHARS:
-                if buf:
-                    chunks.append(buf)
-                    buf = ""
-                chunks.append(line[:MAX_BATCH_CHARS])
-                line = line[MAX_BATCH_CHARS:]
-            if len(buf) + len(line) > MAX_BATCH_CHARS:
-                chunks.append(buf)
-                buf = line
-            else:
-                buf += line
-        if buf:
-            chunks.append(buf)
-        return chunks
-
     def translate(
         self,
         texts: list[str],
@@ -269,49 +250,47 @@ class VolcengineEngine(BaseEngine):
             return list(texts)
 
         to_send_texts = [texts[idx] for idx in non_empty_indices]
-        translated_non_empty: list[str] = []
+
+        # 超长片段先按自然边界切开（换行 > 句末 > 从句 > 硬切），避免 -400；
+        # spans 记录每片对应的原片段范围，翻译后无损拼回。
+        pieces, spans = expand(to_send_texts, MAX_BATCH_CHARS)
+        translated_pieces = list(pieces)  # 纯空白片段不发送，原样保留
+        send_order = [k for k, p in enumerate(pieces) if p.strip()]
 
         i = 0
-        total = len(to_send_texts)
+        total = len(send_order)
         while i < total:
-            current = to_send_texts[i]
-            if len(current) > MAX_BATCH_CHARS:
-                pieces = self._split_oversized(current)
-                translated_pieces: list[str] = []
-                for piece in pieces:
-                    res = self._send_request_with_retry([piece], from_lang, to_lang)
-                    translated_pieces.append(res[0] if res else piece)
-                translated_non_empty.append("".join(translated_pieces))
-                i += 1
-                continue
-
-            batch = [current]
-            batch_chars = len(current)
+            batch_pos = [i]
+            batch_chars = len(pieces[send_order[i]])
             j = i + 1
             while j < total:
-                nxt = to_send_texts[j]
+                nxt = pieces[send_order[j]]
                 if (
-                    len(nxt) > MAX_BATCH_CHARS
-                    or len(batch) >= MAX_BATCH_ITEMS
+                    len(batch_pos) >= MAX_BATCH_ITEMS
                     or batch_chars + len(nxt) > MAX_BATCH_CHARS
                 ):
                     break
-                batch.append(nxt)
+                batch_pos.append(j)
                 batch_chars += len(nxt)
                 j += 1
 
+            batch = [pieces[send_order[p]] for p in batch_pos]
             dst = self._send_request_with_retry(batch, from_lang, to_lang)
-            if len(dst) == len(batch):
-                translated_non_empty.extend(dst)
-            else:
+            if len(dst) != len(batch):
+                # 容错：返回条数与请求不符时按位置对齐，缺失的片段保留原文
                 logger.warning(
                     "火山引擎批处理返回条数与请求不匹配 (期望 %d, 实际 %d)，执行对齐修正",
-                    len(batch), len(dst),
+                    len(batch),
+                    len(dst),
                 )
-                for idx in range(len(batch)):
-                    translated_non_empty.append(dst[idx] if idx < len(dst) else batch[idx])
+            for pos, tr in zip(batch_pos, dst):
+                translated_pieces[send_order[pos]] = tr
+
             i = j
 
+        translated_non_empty = [
+            "".join(translated_pieces[start:end]) for start, end in spans
+        ]
         results = list(texts)
         for idx, trans in zip(non_empty_indices, translated_non_empty):
             results[idx] = trans

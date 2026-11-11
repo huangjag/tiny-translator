@@ -167,6 +167,7 @@ def _build_google_engine(auth_info: dict) -> GoogleV2Engine:
 def select_and_init_engine(
     engine_name: str | None,
     credentials_path: str | None = None,
+    qps: float | None = None,
 ) -> BaseEngine:
     """按编号与规则解析并初始化引擎。
 
@@ -187,7 +188,11 @@ def select_and_init_engine(
                 auth_file = ensure_auth_template_file()
                 sys.stderr.write(format_auth_prompt("百度翻译 (服务 1)", auth_file))
                 sys.exit(3)
-            return BaiduEngine(app_id=auth_info.get("app_id"), secret_key=auth_info.get("secret_key"))
+            return BaiduEngine(
+                app_id=auth_info.get("app_id"),
+                secret_key=auth_info.get("secret_key"),
+                **({"qps": qps} if qps else {}),
+            )
         elif canonical == "volcengine":
             auth_info = resolve_volcengine_credentials(credentials_path)
             if not auth_info.get("access_key") or not auth_info.get("secret_key"):
@@ -209,7 +214,11 @@ def select_and_init_engine(
     baidu_auth = resolve_baidu_credentials(credentials_path)
     if baidu_auth.get("app_id") and baidu_auth.get("secret_key"):
         logger.info("默认采用 [服务 1] 百度通用翻译")
-        return BaiduEngine(app_id=baidu_auth.get("app_id"), secret_key=baidu_auth.get("secret_key"))
+        return BaiduEngine(
+            app_id=baidu_auth.get("app_id"),
+            secret_key=baidu_auth.get("secret_key"),
+            **({"qps": qps} if qps else {}),
+        )
 
     logger.debug("[服务 1] 百度通用翻译未检测到有效 key，跳过此服务，尝试 [服务 2] 火山引擎...")
 
@@ -240,12 +249,13 @@ def translate_content(
     target: str,
     format_mode: str,
     credentials_path: str | None = None,
+    qps: float | None = None,
 ) -> str:
     """执行翻译核心流程。"""
     if not text.strip():
         return text
 
-    engine = select_and_init_engine(engine_name, credentials_path)
+    engine = select_and_init_engine(engine_name, credentials_path, qps)
 
     # 判断是否按 HTML 模式处理
     is_html = (format_mode == "html") or (format_mode == "auto" and "<" in text and ">" in text)
@@ -363,6 +373,10 @@ def main() -> None:
         help="翻译引擎编号或名称: 1 (百度, 默认), 2 (火山引擎), 9 (谷歌)。可直接传编号 1、2 或 9",
     )
     engine_group.add_argument("--credentials", type=str, default=None, help="服务账号凭据路径或 API 密钥文件")
+    engine_group.add_argument(
+        "--qps", type=float, default=None,
+        help="引擎请求频率上限（每秒请求数）。默认由引擎决定（百度 10 QPS）；配额较低时可调小",
+    )
     engine_group.add_argument("--format", type=str, choices=["auto", "html", "text"], default="auto", help="文本解析格式 (默认: auto)")
     engine_group.add_argument("-v", "--verbose", action="store_true", help="打印详细调试日志")
 
@@ -409,6 +423,7 @@ def main() -> None:
             target=args.target,
             format_mode=args.format,
             credentials_path=args.credentials,
+            qps=args.qps,
         )
     except Exception as e:
         sys.stderr.write(f"翻译执行失败: {e}\n")

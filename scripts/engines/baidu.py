@@ -23,6 +23,8 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+from text_splitter import expand
+
 from .base import BaseEngine
 
 logger = logging.getLogger("tiny_translator.baidu")
@@ -106,7 +108,7 @@ class BaiduEngine(BaseEngine):
         self,
         app_id: str | None = None,
         secret_key: str | None = None,
-        qps: float = 1.0,
+        qps: float = 10.0,
         max_retries: int = 4,
     ) -> None:
         self.app_id = (app_id or "").strip()
@@ -226,49 +228,62 @@ class BaiduEngine(BaseEngine):
             return list(texts)
 
         to_send_texts = [texts[idx] for idx in non_empty_indices]
-        translated_non_empty: list[str] = []
+
+        # 2. 超长片段先按自然边界切开：百度 q 上限约 6000 字节，中文 2000 字即顶格，
+        #    整段发送会触发 54005。spans 记录每片对应的原片段范围，翻译后拼回。
+        pieces, spans = expand(to_send_texts, MAX_QUERY_CHARS)
+        translated_pieces = list(pieces)  # 纯空白片段不发送，原样保留
+        send_order = [k for k, p in enumerate(pieces) if p.strip()]
 
         i = 0
-        total = len(to_send_texts)
+        total = len(send_order)
 
         while i < total:
-            # 策略：如果当前段落自身含有换行符，或者仅单项很长，作为单条发送
-            current = to_send_texts[i]
-            if "\n" in current or len(current) > MAX_QUERY_CHARS:
-                # 单项发送
+            current = pieces[send_order[i]]
+            # 片段自身含换行时必须单条发送：批量靠 \n 拼接，含换行会打乱行对应关系
+            if "\n" in current:
                 dst_lines = self._send_request_with_retry(current, from_lang, to_lang)
                 # 百度多行返回以 \n 拼回原格式
-                translated_non_empty.append("\n".join(dst_lines) if dst_lines else current)
+                translated_pieces[send_order[i]] = "\n".join(dst_lines) if dst_lines else current
                 i += 1
                 continue
 
-            # 将不含换行符的短文本打包为一个 batch
-            batch: list[str] = [current]
+            # 将不含换行符的短片段打包为一个 batch
+            batch_pos = [i]
             batch_chars = len(current)
             j = i + 1
             while j < total:
-                nxt = to_send_texts[j]
-                if "\n" in nxt or (batch_chars + len(nxt) + 1 > MAX_QUERY_CHARS) or (len(batch) >= MAX_BATCH_LINES):
+                nxt = pieces[send_order[j]]
+                if (
+                    "\n" in nxt
+                    or batch_chars + len(nxt) + 1 > MAX_QUERY_CHARS
+                    or len(batch_pos) >= MAX_BATCH_LINES
+                ):
                     break
-                batch.append(nxt)
+                batch_pos.append(j)
                 batch_chars += len(nxt) + 1
                 j += 1
 
             # 用 \n 连接打包发送
-            query = "\n".join(batch)
-            dst_lines = self._send_request_with_retry(query, from_lang, to_lang)
+            batch = [pieces[send_order[p]] for p in batch_pos]
+            dst_lines = self._send_request_with_retry("\n".join(batch), from_lang, to_lang)
 
-            if len(dst_lines) == len(batch):
-                translated_non_empty.extend(dst_lines)
-            else:
-                # 容错：如果百度返回的行数与请求不符，按原样填补
-                logger.warning("百度翻译批处理返回行数与请求不匹配 (期望 %d, 实际 %d)，执行对齐修正", len(batch), len(dst_lines))
-                for idx in range(len(batch)):
-                    translated_non_empty.append(dst_lines[idx] if idx < len(dst_lines) else batch[idx])
+            if len(dst_lines) != len(batch):
+                # 容错：返回行数与请求不符时按位置对齐，缺失的行保留原文
+                logger.warning(
+                    "百度翻译批处理返回行数与请求不匹配 (期望 %d, 实际 %d)，执行对齐修正",
+                    len(batch),
+                    len(dst_lines),
+                )
+            for pos, tr in zip(batch_pos, dst_lines):
+                translated_pieces[send_order[pos]] = tr
 
             i = j
 
-        # 2. 将非空翻译结果精准回填到原位置
+        # 3. 按原片段范围拼回译文，再精准回填到原位置
+        translated_non_empty = [
+            "".join(translated_pieces[start:end]) for start, end in spans
+        ]
         results = list(texts)
         for idx, trans in zip(non_empty_indices, translated_non_empty):
             results[idx] = trans
