@@ -23,7 +23,7 @@ from typing import Any
 
 logger = logging.getLogger("tiny_translator.auth")
 
-SKILL_ROOT = Path(__file__).resolve().parent.parent
+SKILL_ROOT = Path(__file__).resolve().parents[2]
 
 
 def get_user_config_dirs() -> list[Path]:

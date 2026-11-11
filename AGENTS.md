@@ -21,11 +21,11 @@ On a hit: name the file and its size, ask the user to move the credentials to `~
 ## Read first
 
 - `SKILL.md` — agent-facing skill manifest (CLI flags, output contract, credential lookup order, engine notes). **Update it whenever CLI behavior changes**; it is the documented contract.
-- `tests/google-translate-v2-html-knowledge.md` — measured Google Translate v2 behavior matrix (dated 2026-11, ja→zh); local-only (gitignored). `tiny_translator/tags.py` masking/straddle/split logic is designed against it. If you change tag-protection behavior or target a new language pair, re-run its probes (§5) against the real API.
+- `tests/google-translate-v2-html-knowledge.md` — measured Google Translate v2 behavior matrix (dated 2026-11, ja→zh); local-only (gitignored). `scripts/tiny_translator/tags.py` masking/straddle/split logic is designed against it. If you change tag-protection behavior or target a new language pair, re-run its probes (§5) against the real API.
 
 ## Commands
 
-Run the CLI by file path from the repo root — never `python -m scripts.translate` (modules use flat imports; `scripts/` has no `__init__.py`):
+Run the CLI by file path from the repo root — `python -m scripts.translate` does not exist; the shim is `scripts/translate.py` (or `python -m tiny_translator` with `scripts/` as CWD):
 
 ```bash
 python scripts/translate.py --text "<b>太字</b>のあとに<br>改行します。" -s ja -t zh
@@ -51,17 +51,17 @@ python -m unittest discover -s tests
 
 ## Architecture
 
-`tiny_translator/` is a stdlib-only package — the reusable library. `scripts/translate.py` is a 10-line shim so `python scripts/translate.py ...` keeps working.
+`scripts/tiny_translator/` is a stdlib-only package — the reusable library. Everything runnable lives under `scripts/`, so the skill folder is self-contained (copying `SKILL.md` + `scripts/` alone is enough). `scripts/translate.py` is a 10-line shim so `python scripts/translate.py ...` keeps working.
 
-- `tiny_translator/core.py` — library entry: `translate`, `translate_text`, `translate_html`, `resolve_engine`, `available_engines`. Raises `AuthMissingError` instead of exiting; accepts an injected `engine=` to skip credential discovery.
-- `tiny_translator/cli.py` — process-level concerns only: argparse, stdio UTF-8, output routing (auto encoding fallback utf-8-sig → utf-8 → cp932 → gb18030; 5000-char threshold), exit codes 0/1/2/3, venv re-exec. **Never import `cli` from library code** — it writes stdout and calls `sys.exit`.
-- `tiny_translator/auth.py` — credential discovery (`--credentials` → user config → skill `auth/` → env) and template generation. `SKILL_ROOT` is derived from `__file__`, so the `auth/` fallback only resolves inside this repo layout.
-- `tiny_translator/tags.py` — protection core. `GoogleHTMLProcessor` (engines with `supports_html=True`): mask fragile atoms (`<rt>` content, `<wbr>`, entities in text nodes) as `<span translate="no">⟦Gn⟧</span>` → straddle-check (paired tag crossing `<br>` → translate whole segment) → capture-split on `<br>` → local restore. `DOMTextNodeProcessor` (plain-text engines: baidu/volcengine): extracts text nodes via `bs4`, translates them, reassembles; **silently degrades to raw translation if `bs4` is not installed**.
-- `tiny_translator/errors.py` — `TranslationError(RuntimeError)` plus `AuthMissingError`, `MissingDependencyError`, `ProviderError`, `QuotaExceededError`, `RateLimitError`, `NetworkError`. Engines map provider codes onto these so a host can switch provider on quota/limit.
-- `tiny_translator/engines/` — `baidu` (1), `volcengine` (2), `google_v2` (9) on `BaseEngine`. Core contract: `translate(list[str]) -> list[str]` must return strictly order-corresponding results; engines batch internally (baidu ≤2000 chars/50 lines joined by `\n`; volcengine ≤16 items/5000 chars with hard-split of oversized texts; google ≤128 segments/request).
+- `scripts/tiny_translator/core.py` — library entry: `translate`, `translate_text`, `translate_html`, `resolve_engine`, `available_engines`. Raises `AuthMissingError` instead of exiting; accepts an injected `engine=` to skip credential discovery.
+- `scripts/tiny_translator/cli.py` — process-level concerns only: argparse, stdio UTF-8, output routing (auto encoding fallback utf-8-sig → utf-8 → cp932 → gb18030; 5000-char threshold), exit codes 0/1/2/3, venv re-exec. **Never import `cli` from library code** — it writes stdout and calls `sys.exit`.
+- `scripts/tiny_translator/auth.py` — credential discovery (`--credentials` → user config → skill `auth/` → env) and template generation. `SKILL_ROOT` is `parents[2]` from the module file, so the `auth/` fallback only resolves inside this repo layout.
+- `scripts/tiny_translator/tags.py` — protection core. `GoogleHTMLProcessor` (engines with `supports_html=True`): mask fragile atoms (`<rt>` content, `<wbr>`, entities in text nodes) as `<span translate="no">⟦Gn⟧</span>` → straddle-check (paired tag crossing `<br>` → translate whole segment) → capture-split on `<br>` → local restore. `DOMTextNodeProcessor` (plain-text engines: baidu/volcengine): extracts text nodes via `bs4`, translates them, reassembles; **silently degrades to raw translation if `bs4` is not installed**.
+- `scripts/tiny_translator/errors.py` — `TranslationError(RuntimeError)` plus `AuthMissingError`, `MissingDependencyError`, `ProviderError`, `QuotaExceededError`, `RateLimitError`, `NetworkError`. Engines map provider codes onto these so a host can switch provider on quota/limit.
+- `scripts/tiny_translator/engines/` — `baidu` (1), `volcengine` (2), `google_v2` (9) on `BaseEngine`. Core contract: `translate(list[str]) -> list[str]` must return strictly order-corresponding results; engines batch internally (baidu ≤2000 chars/50 lines joined by `\n`; volcengine ≤16 items/5000 chars with hard-split of oversized texts; google ≤128 segments/request).
 - `tests/input/` / `tests/output/` are manual ja→zh novel/HTML fixtures (real-world quality checks, unused by unit tests). `tests/` is gitignored, so it is absent from the published repo.
 
-Library usage from another project (copy `tiny_translator/` in, or put this repo on `PYTHONPATH`):
+Library usage from another project (copy `scripts/tiny_translator/` in, or put `<repo>/scripts` on `PYTHONPATH`):
 
 ```python
 import tiny_translator as tt

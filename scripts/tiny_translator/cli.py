@@ -25,7 +25,7 @@ from .auth import format_auth_prompt
 from .core import translate
 from .errors import AuthMissingError, MissingDependencyError
 
-PACKAGE_ROOT = Path(__file__).resolve().parent.parent
+PACKAGE_ROOT = Path(__file__).resolve().parents[2]  # 仓库根目录（用于找 .venv）
 REEXEC_FLAG = "TINY_TRANSLATOR_REEXECED"
 
 
