@@ -24,6 +24,7 @@ import urllib.request
 from typing import Any
 
 from .base import BaseEngine
+from ..errors import NetworkError, ProviderError, QuotaExceededError, RateLimitError
 
 logger = logging.getLogger("tiny_translator.baidu")
 
@@ -45,6 +46,20 @@ ERROR_MESSAGES: dict[str, str] = {
     "58001": "译文语言方向不支持，请检查语种代码",
     "58002": "服务当前已关闭，请前往管理控制台开启",
 }
+
+# 错误分类：宿主可据此决定「换供应商」还是「稍后重试」
+RATE_LIMIT_CODES = {"54003", "54005"}
+QUOTA_CODES = {"54004"}
+
+
+def _provider_error(code: str, msg: str) -> ProviderError:
+    """把百度错误码映射为具体异常类型。"""
+    text = f"百度翻译 API 错误 [{code}]: {msg}"
+    if code in QUOTA_CODES:
+        return QuotaExceededError(text)
+    if code in RATE_LIMIT_CODES:
+        return RateLimitError(text)
+    return ProviderError(text)
 
 # 常见语种代码映射到百度规范
 LANGUAGE_MAP: dict[str, str] = {
@@ -176,7 +191,7 @@ class BaiduEngine(BaseEngine):
                     logger.warning("百度翻译网络错误 (%s)，将在 %.1fs 后重试...", e, backoff)
                     time.sleep(backoff)
                     continue
-                raise RuntimeError(f"百度翻译请求失败: {e}") from e
+                raise NetworkError(f"百度翻译请求失败: {e}") from e
 
             # 校验业务返回码
             error_code = res_json.get("error_code")
@@ -196,9 +211,9 @@ class BaiduEngine(BaseEngine):
                 continue
 
             # 不可恢复错误直接抛出
-            raise RuntimeError(f"百度翻译 API 错误 [{err_code_str}]: {err_msg}")
+            raise _provider_error(err_code_str, err_msg)
 
-        raise RuntimeError("百度翻译请求超出最大重试次数")
+        raise NetworkError("百度翻译请求超出最大重试次数")
 
     def translate(
         self,
@@ -215,7 +230,7 @@ class BaiduEngine(BaseEngine):
         if not texts:
             return []
         if not self.app_id or not self.secret_key:
-            raise RuntimeError("百度通用翻译引擎未配置凭据！请提供 app_id 与 secret_key。")
+            raise ProviderError("百度通用翻译引擎未配置凭据！请提供 app_id 与 secret_key。")
 
         from_lang = self.map_language(source)
         to_lang = self.map_language(target)

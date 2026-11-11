@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from .base import BaseEngine
+from ..errors import NetworkError, ProviderError, QuotaExceededError, RateLimitError
 
 logger = logging.getLogger("tiny_translator.google_v2")
 MAX_BATCH_SIZE = 128
@@ -74,7 +75,7 @@ class GoogleV2Engine(BaseEngine):
             elif self._client:
                 batch_res = self._translate_client(batch, source=source, target=target, format_=format_)
             else:
-                raise RuntimeError("Google Translate v2 未配置有效凭据 (缺少 Service Account JSON 或 API Key)")
+                raise ProviderError("Google Translate v2 未配置有效凭据 (缺少 Service Account JSON 或 API Key)")
             results.extend(batch_res)
 
         return results

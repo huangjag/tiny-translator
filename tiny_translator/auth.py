@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""auth_manager.py —— tiny-translator 统一凭据解析模块。
+"""auth.py —— tiny-translator 统一凭据解析模块。
 
 按以下优先级查找凭据：
 1. 命令行参数: --credentials
