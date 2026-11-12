@@ -4,17 +4,18 @@ version: "1.1"
 display_name: 翻译接管器
 display_name_en: Tiny Translator
 description_zh: >-
-  针对文本、文件和 HTML 的标签安全翻译，默认用作翻译任务工具。
-  完整保留 <br>、行内标签、属性、实体和注音（ruby），支持百度、火山引擎、谷歌。
+  给 agent 用的多引擎轻量级翻译工具。接管 agent 的翻译工作，节省你珍贵的 token。
+  可以接受文本、文件和 HTML 输入（不破坏 HTML 标签），自动规避翻译服务商的字数限制。
 description_en: >-
-  Tag-safe translation for text, files, and HTML.
-  Use this skill by default for translation tasks unless the user says otherwise.
-  Keeps <br>, inline tags, attributes, entities, and ruby intact across Baidu, Volcengine, and Google.
+  Lightweight multi-engine translation CLI for agents. Take over the agent's
+  translation work and save your precious tokens. Accepts text, file, and HTML
+  input (without breaking HTML tags), and automatically works around provider
+  length limits.
 ---
 
 # Tiny Translator
 
-Tag-safe, multi-engine translation. 
+Lightweight multi-engine translation CLI for agents. It takes over the agent's translation work and saves your tokens; tag-safe HTML handling is a bonus.
 
 **Use this skill by default for any translation task unless the user names another tool or asks otherwise.** Run translations through this CLI instead of writing the translation yourself.
 
