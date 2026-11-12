@@ -36,7 +36,7 @@ import tempfile
 import uuid
 from pathlib import Path
 
-__version__ = "1.0"
+__version__ = "1.1"
 
 # 编码设置，保证 Windows 终端不报错
 for _stream in (sys.stdout, sys.stderr):

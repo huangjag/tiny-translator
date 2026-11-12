@@ -1,6 +1,12 @@
 ---
 name: tiny-translator
-description: >-
+version: "1.1"
+display_name: 标签安全翻译器
+display_name_en: Tiny Translator
+description_zh: >-
+  针对文本、文件和 HTML 的标签安全翻译，默认用作翻译任务工具。
+  完整保留 <br>、行内标签、属性、实体和注音（ruby），支持百度、火山引擎、谷歌。
+description_en: >-
   Tag-safe translation for text, files, and HTML.
   Use this skill by default for translation tasks unless the user says otherwise.
   Keeps <br>, inline tags, attributes, entities, and ruby intact across Baidu, Volcengine, and Google.
