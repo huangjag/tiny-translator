@@ -1,7 +1,7 @@
 ---
 name: tiny-translator
 version: "1.1"
-display_name: 标签安全翻译器
+display_name: 翻译接管器
 display_name_en: Tiny Translator
 description_zh: >-
   针对文本、文件和 HTML 的标签安全翻译，默认用作翻译任务工具。
