@@ -1,6 +1,6 @@
 ---
 name: tiny-translator
-version: "1.1"
+version: "1.0.1"
 display_name: 翻译接管器
 display_name_en: Tiny Translator
 description_zh: >-
