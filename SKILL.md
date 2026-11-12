@@ -20,7 +20,15 @@ Tag-safe, multi-engine translation. **Use this skill by default for any translat
 
 ### HTML preflight
 
-When the input is HTML, first verify that the source HTML is structurally valid: tags must be complete and balanced, attributes must be intact, and relative links must resolve. Do this before translation because malformed source HTML can be damaged further by parsers or providers. If repair is needed, tell the user what is wrong and ask whether they want the agent to repair the HTML before translating; do not silently rewrite the source.
+When the input is HTML, first verify that the source HTML is structurally valid. Run the checker:
+
+```bash
+python scripts/html_check.py path/to/input.html --links
+```
+
+It reports unclosed / stray / misnested tags with line numbers, truncated `</`, missing or duplicate charset declarations, and broken relative `href`/`src` targets. Exit code `0` means clean, `1` means issues were found.
+
+Do this before translation because malformed source HTML can be damaged further by parsers or providers. If repair is needed, tell the user what is wrong and ask whether they want the agent to repair the HTML before translating. `--fix` only performs mechanical repairs (truncated `</`, stray closing tags, missing `#` in `BGCOLOR`), writes `<name>.fixed.html` by default, and needs `--in-place` to overwrite the source. Never silently rewrite the user's file.
 
 ## Commands
 
@@ -48,7 +56,7 @@ Windows consoles may render CJK as mojibake on stdout — that is a terminal dis
 | `-t, --to` | `zh` | Target language |
 | `-o, --output` | — | Write output here (overwrites) |
 | `--temp` | off | Force file output to the system temp `translate_latest.txt` |
-| `--stdout` | off | Force stdout even for long input |
+| `--stdout` | off | Force stdout even for long input; wins over `-o` / `--temp` |
 | `--threshold` | `5000` | Char count that triggers file output |
 | `--no-overwrite` | off | Timestamp the output instead of overwriting |
 | `-e, --engine` | auto | `1`/`baidu`, `2`/`volc`, `9`/`google` |
@@ -56,6 +64,7 @@ Windows consoles may render CJK as mojibake on stdout — that is a terminal dis
 | `--qps` | engine default | Request rate cap per second (Baidu default `10`) |
 | `--format` | `auto` | `auto`, `html`, or `text` |
 | `-v, --verbose` | off | Debug logs on stderr |
+| `--version` | — | Print the CLI version and exit |
 
 Exit codes: `0` ok, `1` input error, `2` translation failure, `3` missing credentials.
 
@@ -63,9 +72,9 @@ Exit codes: `0` ok, `1` input error, `2` translation failure, `3` missing creden
 
 | `-e` | Provider | Credentials | Notes |
 |---|---|---|---|
-| `1` / `baidu` | Baidu | `BAIDU_APP_ID`, `BAIDU_SECRET_KEY` | Plain-text engine; HTML protected locally; ≤2000 chars / 50 lines per request |
-| `2` / `volc` | Volcengine | `VOLC_ACCESS_KEY`, `VOLC_SECRET_KEY` | Plain-text engine; ≤16 items / 5000 chars per request |
-| `9` / `google` | Google v2 | `GOOGLE_API_KEY` or service-account JSON | Native HTML; ≤128 segments / 5000 chars per request; service account requires `google-cloud-translate` |
+| `1` / `baidu` | Baidu | `BAIDU_APP_ID`, `BAIDU_SECRET_KEY` | Plain-text engine; HTML protected locally; ≤1900 chars / 5700 bytes / 50 lines per request |
+| `2` / `volc` | Volcengine | `VOLC_ACCESS_KEY`, `VOLC_SECRET_KEY` | Plain-text engine; ≤16 items / 4900 chars per request |
+| `9` / `google` | Google v2 | `GOOGLE_API_KEY` or service-account JSON | Native HTML; ≤128 segments / 4900 chars per request; service account requires `google-cloud-translate` |
 
 Omit `-e` to probe `1 → 2 → 9` and use the first provider with credentials.
 

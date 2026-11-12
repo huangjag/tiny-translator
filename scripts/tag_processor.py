@@ -15,7 +15,7 @@ r"""tag_processor.py —— HTML 标签保护、切分与还原器。
 
 from __future__ import annotations
 
-import html
+import difflib
 import logging
 import re
 from collections import Counter
@@ -47,6 +47,42 @@ SPAN_TOKEN_RE = re.compile(
 )
 BARE_TOKEN_RE = re.compile(r"⟦\s*G\s*(\d+)\s*⟧", re.IGNORECASE)
 GENERAL_TAG_RE = re.compile(r"<\s*/?\s*([a-zA-Z][a-zA-Z0-9]*)")
+
+# 完整标签（含属性），用于逐位骨架比对。注释/DOCTYPE/PI 不匹配（名字必须以字母开头）。
+SKELETON_TAG_RE = re.compile(
+    r"<\s*(/?)\s*([a-zA-Z][\w:-]*)((?:[^>\"']|\"[^\"]*\"|'[^']*')*)>",
+    re.DOTALL,
+)
+ATTR_RE = re.compile(r"([:\w-]+)(?:\s*=\s*(?:\"([^\"]*)\"|'([^']*)'|([^\s\"'>]+)))?")
+# 这些属性的值会被翻译器改写，骨架比对只看属性名，避免误报
+TRANSLATABLE_ATTRS = frozenset({"title", "alt", "placeholder", "aria-label", "value", "label"})
+
+
+def _normalize_attrs(raw: str) -> tuple[tuple[str, str], ...]:
+    """把属性串规范化为可比较的 (名字, 值) 元组，按名字排序。"""
+    attrs: list[tuple[str, str]] = []
+    for m in ATTR_RE.finditer(raw):
+        name = m.group(1).lower()
+        value = m.group(2)
+        if value is None:
+            value = m.group(3)
+        if value is None:
+            value = m.group(4) or ""
+        if name in TRANSLATABLE_ATTRS:
+            value = ""
+        attrs.append((name, value.strip()))
+    return tuple(sorted(attrs))
+
+
+def _skeleton(text: str) -> list[tuple[bool, str, tuple[tuple[str, str], ...]]]:
+    """提取有序标签骨架：(是否闭合, 标签名, 规范化属性)。"""
+    out: list[tuple[bool, str, tuple[tuple[str, str], ...]]] = []
+    for m in SKELETON_TAG_RE.finditer(text):
+        closing = bool(m.group(1))
+        name = m.group(2).lower()
+        attrs = () if closing else _normalize_attrs(m.group(3))
+        out.append((closing, name, attrs))
+    return out
 
 
 class GoogleHTMLProcessor:
@@ -168,6 +204,29 @@ class GoogleHTMLProcessor:
         return text
 
     @classmethod
+    def skeleton_diff(
+        cls, original_html: str, translated_html: str, limit: int = 5
+    ) -> list[str]:
+        """逐位比对标签骨架（顺序 + 属性），返回可读的差异列表。
+
+        只比标签序列与属性，不比文本内容；属性值中会被翻译器改写的字段
+        （title / alt 等）只比名字，避免误报。
+        """
+        orig = _skeleton(original_html)
+        trans = _skeleton(translated_html)
+        diffs: list[str] = []
+        matcher = difflib.SequenceMatcher(a=orig, b=trans, autojunk=False)
+        for op, i1, i2, j1, j2 in matcher.get_opcodes():
+            if op == "equal":
+                continue
+            diffs.append(
+                f"{op}: 原文[{i1}:{i2}]={orig[i1:i2][:3]} -> 译文[{j1}:{j2}]={trans[j1:j2][:3]}"
+            )
+            if len(diffs) >= limit:
+                break
+        return diffs
+
+    @classmethod
     def check_tags(cls, original_html: str, translated_html: str) -> dict[str, int]:
         """后检比对输入与输出中的标签守恒性。返回丢失标签及其计数。"""
         orig_counts = Counter(GENERAL_TAG_RE.findall(original_html.lower()))
@@ -175,6 +234,8 @@ class GoogleHTMLProcessor:
         lost = orig_counts - trans_counts
         if lost:
             logger.warning("标签后检发现数量差异: %s", dict(lost))
+        for diff in cls.skeleton_diff(original_html, translated_html):
+            logger.warning("标签骨架差异: %s", diff)
         return dict(lost)
 
 
@@ -239,8 +300,28 @@ class DOMTextNodeProcessor:
         # 批量翻译纯文本
         translated_texts = translate_fn(raw_texts, source=source, target=target, format_="text")
 
-        # 灌回 DOM
-        for node, trans in zip(text_nodes, translated_texts):
+        # 灌回 DOM：按索引回填，避免 zip 静默截断；
+        # 译文为空但原文非空时保留原文，防止引擎吞掉分隔符等内容。
+        empty_kept = 0
+        missing = 0
+        for i, node in enumerate(text_nodes):
+            src = raw_texts[i]
+            if i < len(translated_texts):
+                trans = translated_texts[i]
+            else:
+                trans = src
+                missing += 1
+            if not trans.strip() and src.strip():
+                trans = src
+                empty_kept += 1
             node.replace_with(trans)
+
+        if missing:
+            logger.warning(
+                "引擎返回条数不足 (期望 %d, 实际 %d)，缺失部分保留原文",
+                len(text_nodes), len(translated_texts),
+            )
+        if empty_kept:
+            logger.warning("引擎返回空译文 %d 处，已保留原文避免内容丢失", empty_kept)
 
         return cls._restore_void_literals(str(soup), html_content)

@@ -8,7 +8,8 @@
 - supports_html = False (纯文本引擎，通过 DOMTextNodeProcessor 隔离保护 HTML)
 - 签名算法: MD5(appid + q + salt + key)，小写 32 位，注意 q 签名时不经过 urlencode
 - 多行文本批处理: 利用换行符 \\n 分隔多段文本合并单次请求，极大节省 QPS
-- 访问频率控制与指数退避重试: 优雅应对 54003 (QPS 受限) 与 52001/52002 (超时与系统错误)
+- 访问频率控制与指数退避重试: 优雅应对 54003 (QPS 受限)、54005 (长 query 频繁) 与 52001/52002 (超时与系统错误)
+- 请求限长: q 按 UTF-8 字节计算，客户端留余量用 5700 字节 / 1900 字符，避免触发 6000 字节上限
 - 语种代码映射: 全面映射 ISO-639-1 / BCP-47 至百度语种代码 (如 ja -> jp, ko -> kor, zh-TW -> cht)
 """
 
@@ -21,9 +22,8 @@ import random
 import time
 import urllib.parse
 import urllib.request
-from typing import Any
 
-from text_splitter import expand
+from text_splitter import expand_bytes
 
 from .base import BaseEngine
 
@@ -95,8 +95,11 @@ LANGUAGE_MAP: dict[str, str] = {
     "hu": "hu",
 }
 
-# 单请求文本安全上限（字符数与段落数）
-MAX_QUERY_CHARS = 2000
+# 单请求文本安全上限
+# 百度官方限制: q 不超过 6000 字节。中文 3 字节/字，因此同时卡字符与字节，
+# 客户端各留一点余量（1900 字符 / 5700 字节），确保任何字符组合都不触顶。
+MAX_QUERY_CHARS = 1900
+MAX_QUERY_BYTES = 5700
 MAX_BATCH_LINES = 50
 
 
@@ -190,8 +193,8 @@ class BaiduEngine(BaseEngine):
             err_code_str = str(error_code)
             err_msg = ERROR_MESSAGES.get(err_code_str, res_json.get("error_msg", "未知错误"))
 
-            # 54003 (QPS限制) 或 52001/52002 (超时/系统错): 触发退避重试
-            if err_code_str in ("54003", "52001", "52002") and attempt < self.max_retries:
+            # 54003 (QPS限制)、54005 (长 query 频繁) 或 52001/52002 (超时/系统错): 触发退避重试
+            if err_code_str in ("54003", "54005", "52001", "52002") and attempt < self.max_retries:
                 backoff = (attempt + 1) * 1.2
                 logger.warning("百度翻译触发限流或可恢复错误 [%s: %s]，将在 %.1fs 后重试 (第 %d 次)...", err_code_str, err_msg, backoff, attempt + 1)
                 time.sleep(backoff)
@@ -229,9 +232,9 @@ class BaiduEngine(BaseEngine):
 
         to_send_texts = [texts[idx] for idx in non_empty_indices]
 
-        # 2. 超长片段先按自然边界切开：百度 q 上限约 6000 字节，中文 2000 字即顶格，
-        #    整段发送会触发 54005。spans 记录每片对应的原片段范围，翻译后拼回。
-        pieces, spans = expand(to_send_texts, MAX_QUERY_CHARS)
+        # 2. 超长片段先按自然边界切开：百度 q 按 UTF-8 字节计（6000 上限），
+        #    客户端用 5700 字节 / 1900 字符双保险。spans 记录每片对应的原片段范围。
+        pieces, spans = expand_bytes(to_send_texts, MAX_QUERY_BYTES, MAX_QUERY_CHARS)
         translated_pieces = list(pieces)  # 纯空白片段不发送，原样保留
         send_order = [k for k, p in enumerate(pieces) if p.strip()]
 
@@ -248,20 +251,21 @@ class BaiduEngine(BaseEngine):
                 i += 1
                 continue
 
-            # 将不含换行符的短片段打包为一个 batch
+            # 将不含换行符的短片段打包为一个 batch（按 UTF-8 字节累加）
             batch_pos = [i]
-            batch_chars = len(current)
+            batch_bytes = len(current.encode("utf-8"))
             j = i + 1
             while j < total:
                 nxt = pieces[send_order[j]]
+                nxt_bytes = len(nxt.encode("utf-8"))
                 if (
                     "\n" in nxt
-                    or batch_chars + len(nxt) + 1 > MAX_QUERY_CHARS
+                    or batch_bytes + nxt_bytes + 1 > MAX_QUERY_BYTES
                     or len(batch_pos) >= MAX_BATCH_LINES
                 ):
                     break
                 batch_pos.append(j)
-                batch_chars += len(nxt) + 1
+                batch_bytes += nxt_bytes + 1     # +1 为拼接用的 \n
                 j += 1
 
             # 用 \n 连接打包发送

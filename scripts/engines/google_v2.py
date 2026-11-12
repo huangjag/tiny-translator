@@ -14,6 +14,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -24,7 +26,10 @@ from .base import BaseEngine
 
 logger = logging.getLogger("tiny_translator.google_v2")
 MAX_BATCH_SIZE = 128
-MAX_BATCH_CHARS = 5000  # 官方建议：单请求不超过 5K code points
+MAX_BATCH_CHARS = 4900  # 官方建议单请求不超过 5K code points，客户端留 100 余量
+
+# REST 通道可重试的 HTTP 状态码（限流 / 网关 / 服务端临时错误）
+RETRYABLE_HTTP_CODES = {429, 500, 502, 503, 504}
 
 
 class GoogleV2Engine(BaseEngine):
@@ -35,9 +40,11 @@ class GoogleV2Engine(BaseEngine):
         self,
         api_key: str | None = None,
         credentials_path: str | None = None,
+        max_retries: int = 4,
     ) -> None:
         self.api_key = api_key
         self.credentials_path = credentials_path
+        self.max_retries = max_retries
         self._client: Any = None
 
         if self.credentials_path:
@@ -147,7 +154,7 @@ class GoogleV2Engine(BaseEngine):
         target: str,
         format_: str,
     ) -> list[str]:
-        """使用 Google REST API 直接请求 (使用 API Key)。"""
+        """使用 Google REST API 直接请求 (使用 API Key)，带指数退避重试。"""
         url = f"https://translation.googleapis.com/language/translate/v2?key={self.api_key}"
         payload: dict[str, Any] = {
             "q": texts,
@@ -163,6 +170,31 @@ class GoogleV2Engine(BaseEngine):
             headers={"Content-Type": "application/json; charset=utf-8"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=45) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        return [t["translatedText"] for t in data["data"]["translations"]]
+
+        for attempt in range(self.max_retries + 1):
+            try:
+                with urllib.request.urlopen(req, timeout=45) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                return [t["translatedText"] for t in data["data"]["translations"]]
+            except urllib.error.HTTPError as e:
+                body = e.read().decode("utf-8", errors="replace")
+                if e.code in RETRYABLE_HTTP_CODES and attempt < self.max_retries:
+                    backoff = (attempt + 1) * 1.5
+                    logger.warning(
+                        "谷歌翻译返回 HTTP %s，将在 %.1fs 后重试 (第 %d 次)...",
+                        e.code, backoff, attempt + 1,
+                    )
+                    time.sleep(backoff)
+                    continue
+                raise RuntimeError(
+                    f"谷歌翻译 API 错误 [HTTP {e.code}]: {body[:300]}"
+                ) from e
+            except Exception as e:
+                if attempt < self.max_retries:
+                    backoff = (attempt + 1) * 1.5
+                    logger.warning("谷歌翻译网络错误 (%s)，将在 %.1fs 后重试...", e, backoff)
+                    time.sleep(backoff)
+                    continue
+                raise RuntimeError(f"谷歌翻译请求失败: {e}") from e
+
+        raise RuntimeError("谷歌翻译请求超出最大重试次数")

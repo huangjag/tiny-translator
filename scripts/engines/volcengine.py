@@ -9,6 +9,7 @@
 - supports_html = False (纯文本引擎，通过 DOMTextNodeProcessor 隔离保护 HTML)
 - 签名算法: 火山 HMAC-SHA256 v4，仅依赖标准库 hmac / hashlib / urllib
 - 接口限制: TextList 单请求不超过 16 条，且总文本长度不超过 5000 字符
+- 客户端留余量: 按 4900 字符分批，避免恰好顶格触发 -400
 - 超长单条文本先按自然边界 (换行 > 句末 > 从句 > 硬切) 拆分，翻译后无损拼回
 - 访问频率控制与指数退避重试: 应对 -429 (请求过于频繁) 与 -500 (服务内部错误)
 - 语种代码映射: ISO-639-1 / BCP-47 至火山代码 (如 zh-TW -> zh-Hant, ja 保持 ja)
@@ -43,7 +44,7 @@ ALGORITHM = "HMAC-SHA256"
 
 # 接口硬限制
 MAX_BATCH_ITEMS = 16
-MAX_BATCH_CHARS = 5000
+MAX_BATCH_CHARS = 4900     # API 上限 5000，客户端留 100 字余量
 
 # 参与签名的 header (小写、按 ASCII 排序)
 SIGNED_HEADERS = "content-type;host;x-content-sha256;x-date"

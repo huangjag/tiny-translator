@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import argparse
 import datetime
-import html
 import logging
 import os
 import subprocess
@@ -36,6 +35,8 @@ import sys
 import tempfile
 import uuid
 from pathlib import Path
+
+__version__ = "1.0.0"
 
 # 编码设置，保证 Windows 终端不报错
 for _stream in (sys.stdout, sys.stderr):
@@ -110,7 +111,15 @@ def read_input_text(file_path: str | None, direct_text: str | None) -> str:
                 return raw.decode(enc)
             except UnicodeDecodeError:
                 continue
-        return raw.decode("utf-8", errors="replace")
+        decoded = raw.decode("utf-8", errors="replace")
+        bad = decoded.count("\ufffd")
+        if bad:
+            logger.warning(
+                "输入文件无法用 utf-8 / cp932 / gb18030 完整解码，已用替换字符兜底 (%d 处)；"
+                "若译文出现乱码，请确认源文件编码",
+                bad,
+            )
+        return decoded
 
     # 从管道流 (stdin) 读取
     if not sys.stdin.isatty():
@@ -145,6 +154,35 @@ def determine_output_path(
 
     target.parent.mkdir(parents=True, exist_ok=True)
     return target
+
+
+def decide_output(
+    stdout_flag: bool,
+    output_arg: str | None,
+    temp_flag: bool,
+    char_count: int,
+    threshold: int,
+) -> tuple[bool, bool]:
+    """决定输出方式，返回 ``(是否写文件, 是否自动重定向到临时文件)``。
+
+    优先级：``--stdout`` > ``-o`` / ``--temp`` > 长度阈值。
+    """
+    if stdout_flag:
+        return False, False
+    if output_arg or temp_flag:
+        return True, False
+    if char_count >= threshold:
+        return True, True
+    return False, False
+
+
+def write_output_text(path: Path, text: str) -> None:
+    """按 UTF-8 写入译文。
+
+    必须走 ``write_bytes``：``Path.write_text`` 在 Windows 上默认
+    ``newline=None``，会把已有 ``\\r\\n`` 再转成 ``\\r\\r\\n``。
+    """
+    path.write_bytes(text.encode("utf-8"))
 
 
 def _build_google_engine(auth_info: dict) -> GoogleV2Engine:
@@ -379,9 +417,9 @@ def main() -> None:
     )
     engine_group.add_argument("--format", type=str, choices=["auto", "html", "text"], default="auto", help="文本解析格式 (默认: auto)")
     engine_group.add_argument("-v", "--verbose", action="store_true", help="打印详细调试日志")
+    parser.add_argument("--version", action="version", version=f"tiny-translator {__version__}")
 
     args = parser.parse_args()
-
     # 配置日志
     log_level = logging.DEBUG if args.verbose else logging.WARNING
     logging.basicConfig(level=log_level, format="[%(levelname)s] %(message)s", stream=sys.stderr)
@@ -399,20 +437,10 @@ def main() -> None:
 
     input_char_count = len(content)
 
-    # 判断输出目标
-    # 规则:
-    # 1. 如果指定了 --stdout: 必须终端输出
-    # 2. 如果指定了 -o / --output 或 --temp: 输出到对应文件
-    # 3. 如果没指定任何文件参数:
-    #    - 若长度 >= threshold (5000): 自动重定向到 temp 文件
-    #    - 若长度 < threshold (5000): 终端直接输出
-    auto_redirect_temp = False
-    need_file_output = bool(args.output or args.temp)
-
-    if not args.stdout and not need_file_output:
-        if input_char_count >= args.threshold:
-            auto_redirect_temp = True
-            need_file_output = True
+    # 判断输出目标：--stdout > -o / --temp > 长度阈值
+    need_file_output, auto_redirect_temp = decide_output(
+        args.stdout, args.output, args.temp, input_char_count, args.threshold
+    )
 
     # 执行翻译
     try:
@@ -437,7 +465,7 @@ def main() -> None:
         to_temp = bool(args.temp or auto_redirect_temp)
         out_path = determine_output_path(args.output, to_temp, args.no_overwrite)
         if out_path:
-            out_path.write_text(translated, encoding="utf-8")
+            write_output_text(out_path, translated)
             if auto_redirect_temp:
                 sys.stdout.write(f"[OUTPUT_FILE] {out_path.resolve()}\n")
                 sys.stdout.write(f"(内容长度为 {input_char_count} 字符，已超过安全阈值 {args.threshold} 字，自动保存至临时文件)\n")

@@ -25,6 +25,7 @@ __all__ = [
     "split_text",
     "split_for_translation",
     "expand",
+    "expand_bytes",
     "split_html",
     "expand_html",
 ]
@@ -132,6 +133,51 @@ def expand(
             pieces.extend(split_for_translation(text, max_chars))
         else:
             pieces.append(text)     # 未超限的片段保持原样（含首尾空白）
+        spans.append((start, len(pieces)))
+    return pieces, spans
+
+
+def _widest_char_bytes(text: str) -> int:
+    """返回文本中最宽字符的 UTF-8 字节数（至少 1）。"""
+    widest = 1
+    for ch in text:
+        n = len(ch.encode("utf-8"))
+        if n > widest:
+            widest = n
+            if widest >= 4:     # UTF-8 单字符最多 4 字节，无需继续扫
+                break
+    return widest
+
+
+def expand_bytes(
+    texts: list[str],
+    max_bytes: int,
+    max_chars: int | None = None,
+) -> tuple[list[str], list[tuple[int, int]]]:
+    """按 UTF-8 字节预算展开片段，可再叠加字符上限。
+
+    部分接口的 ``q`` 上限按字节计算（百度 6000 字节，客户端留余量用 5700），
+    而 :func:`expand` 只按字符数切。中文 3 字节/字、emoji 4 字节/字，2000
+    字符可能到 8000 字节。这里先取文本中最宽字符的字节数，得到同时满足
+    ``max_bytes`` 与 ``max_chars`` 的字符预算，再复用自然边界切分。
+
+    Returns:
+        ``(pieces, spans)``，契约与 :func:`expand` 相同。
+    """
+    pieces: list[str] = []
+    spans: list[tuple[int, int]] = []
+    for text in texts:
+        start = len(pieces)
+        too_long = len(text.encode("utf-8")) > max_bytes or (
+            max_chars is not None and len(text) > max_chars
+        )
+        if not too_long:
+            pieces.append(text)     # 未超限的片段保持原样（含首尾空白）
+        else:
+            limit = max(1, max_bytes // _widest_char_bytes(text))
+            if max_chars is not None:
+                limit = min(limit, max_chars)
+            pieces.extend(split_for_translation(text, max(1, limit)))
         spans.append((start, len(pieces)))
     return pieces, spans
 
