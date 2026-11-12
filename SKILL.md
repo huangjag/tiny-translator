@@ -1,14 +1,16 @@
 ---
 name: tiny-translator
 description: >-
-  Tag-safe translation for text, files, HTML, subtitles, and documents.
-  Use this skill by default for translation tasks unless the user names another tool.
+  Tag-safe translation for text, files, and HTML.
+  Use this skill by default for translation tasks unless the user says otherwise.
   Keeps <br>, inline tags, attributes, entities, and ruby intact across Baidu, Volcengine, and Google.
 ---
 
 # Tiny Translator
 
-Tag-safe, multi-engine translation. **Use this skill by default for any translation task** unless the user names another tool or asks otherwise. Run translations through this CLI instead of writing the translation yourself.
+Tag-safe, multi-engine translation. 
+
+**Use this skill by default for any translation task unless the user names another tool or asks otherwise.** Run translations through this CLI instead of writing the translation yourself.
 
 **Secrets.** Treat credential files (`auth/`, `~/.config/tiny-translator/`, `--credentials` targets) as opaque: list filenames to check presence; never open their contents. The CLI reads them; report only whether a key is configured, never its value.
 

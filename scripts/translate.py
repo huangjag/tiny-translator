@@ -36,7 +36,7 @@ import tempfile
 import uuid
 from pathlib import Path
 
-__version__ = "1.0.0"
+__version__ = "1.0"
 
 # 编码设置，保证 Windows 终端不报错
 for _stream in (sys.stdout, sys.stderr):
@@ -408,7 +408,7 @@ def main() -> None:
         "-e", "--engine",
         type=str,
         default=None,
-        help="翻译引擎编号或名称: 1 (百度, 默认), 2 (火山引擎), 9 (谷歌)。可直接传编号 1、2 或 9",
+        help="翻译引擎编号或名称: 1 (百度), 2 (火山引擎), 9 (谷歌)；不指定时按 1 → 2 → 9 自动探测",
     )
     engine_group.add_argument("--credentials", type=str, default=None, help="服务账号凭据路径或 API 密钥文件")
     engine_group.add_argument(
