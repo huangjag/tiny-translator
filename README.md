@@ -149,13 +149,8 @@ tiny-translator/
     ├── auth_manager.py      # 凭据发现（4 级优先级）与模板生成
     ├── tag_processor.py     # 标签保护：掩码/切分/还原、DOM 文本节点隔离、骨架后检
     ├── text_splitter.py     # 长文本与 HTML 的边界安全切分（字符 / 字节预算）
+    ├── engine.py            # 三引擎合集：BaseEngine + baidu(1) / volcengine(2) / google_v2(9)
     ├── auth_template.txt    # 模板权威副本，与 auth/auth.txt 保持一致
-    └── engines/
-        ├── __init__.py      # 统一导出三个引擎
-        ├── base.py          # BaseEngine：translate(list[str]) -> list[str]
-        ├── baidu.py         # 服务 1，纯文本引擎
-        ├── volcengine.py    # 服务 2，纯文本引擎
-        └── google_v2.py     # 服务 9，支持原生 HTML
 ```
 
 一次翻译的调用链：

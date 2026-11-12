@@ -77,10 +77,7 @@ from auth_manager import (  # noqa: E402
     resolve_google_credentials,
     resolve_volcengine_credentials,
 )
-from engines.base import BaseEngine  # noqa: E402
-from engines.baidu import BaiduEngine  # noqa: E402
-from engines.google_v2 import GoogleV2Engine  # noqa: E402
-from engines.volcengine import VolcengineEngine  # noqa: E402
+from engine import BaseEngine, BaiduEngine, GoogleV2Engine, VolcengineEngine  # noqa: E402
 from tag_processor import DOMTextNodeProcessor, GoogleHTMLProcessor  # noqa: E402
 
 logger = logging.getLogger("tiny_translator")
